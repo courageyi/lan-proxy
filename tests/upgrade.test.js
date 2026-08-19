@@ -222,3 +222,42 @@ test('升级握手完成前客户端断开不崩溃代理', { timeout: 10_000 },
     proxy.close(),
   ]);
 });
+
+test('握手完成后客户端 RST 断开：代理关闭不配合的后端连接，双方 close 均能完成', { timeout: 10_000 }, async (t) => {
+  // 不配合的后端：回 101 后不监听 end/close，客户端断开时它不会自己清理
+  // （与 echo 后端的 end→destroy 不同——那个处理会掩盖代理侧的泄漏）。
+  // 若代理握手后不主动 RST 后端连接（'upgrade' 后 proxyReq.destroy() 已是 no-op），
+  // backend.close() 会永远挂起 → 测试超时即失败。
+  const backend = http.createServer((req, res) => { res.writeHead(404); res.end(); });
+  backend.on('upgrade', (req, socket) => {
+    const accept = crypto.createHash('sha1')
+      .update(req.headers['sec-websocket-key'] + WS_GUID).digest('base64');
+    socket.write(
+      'HTTP/1.1 101 Switching Protocols\r\n' +
+      'Upgrade: websocket\r\nConnection: Upgrade\r\n' +
+      `Sec-WebSocket-Accept: ${accept}\r\n\r\n`);
+    socket.on('error', () => {}); // 只吞 RST 的 'error'，绝不自行销毁
+  });
+  await new Promise((r) => backend.listen(0, '127.0.0.1', r));
+  t.after(() => new Promise((r) => backend.close(r)));
+  const proxy = createProxy({
+    config: buildConfig({ target: { host: '127.0.0.1', port: backend.address().port } }),
+    dir: ROOT, mode: 'http',
+  });
+  const listener = await proxy.listen();
+  t.after(() => proxy.close());
+  const port = listener.address().port;
+  const cookie = await login(port);
+
+  // 隧道已建立（101 收到）；稍等代理完成 teardown 挂接后客户端 RST 断开
+  const { socket, head } = await upgrade(port, cookie);
+  assert.match(head, /^HTTP\/1\.1 101 Switching Protocols/);
+  await new Promise((r) => setTimeout(r, 50));
+  socket.resetAndDestroy();
+
+  // 代理必须把后端连接 RST 掉，否则 backend.close() 挂起 → 测试超时即失败
+  await Promise.all([
+    new Promise((r) => backend.close(r)),
+    proxy.close(),
+  ]);
+});

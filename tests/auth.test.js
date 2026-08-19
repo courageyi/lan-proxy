@@ -5,9 +5,15 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const path = require('node:path');
 const creds = require('../lib/credentials.js');
+const { createAuth } = require('../lib/auth.js');
+const { signSession } = require('../lib/session.js');
 const { createProxy } = require('../lib/server.js');
 
 const ROOT = path.join(__dirname, '..');
+
+function fakeRes() {
+  return { setHeader() {}, writeHead() {}, end() {} };
+}
 
 function buildConfig(overrides = {}) {
   const config = creds.defaultConfig();
@@ -116,4 +122,58 @@ test('登出清除会话，之后访问需重新登录', async (t) => {
   const after = await request(port, { path: '/', headers: { Cookie: `sid=${sid}` } });
   assert.equal(after.status, 302);
   assert.equal(after.headers.location, '/login');
+});
+
+test('伪造 sid 的未认证登出不增长 revoked 表，且不影响正常登录使用', { timeout: 15_000 }, async (t) => {
+  // 回归：/logout 刻意不做认证门禁，若对任意 sid 一律吊销，
+  // 攻击者可灌入任意字符串使 revoked 表无界增长（内存/CPU DoS）。
+  const proxy = createProxy({ config: buildConfig(), dir: ROOT, mode: 'http' });
+  const listener = await proxy.listen();
+  t.after(() => proxy.close());
+  const port = listener.address().port;
+
+  for (let i = 0; i < 200; i++) {
+    const res = await request(port, {
+      method: 'POST', path: '/logout',
+      headers: { Cookie: `sid=fake-token-${i}-${'x'.repeat(48)}` },
+    });
+    assert.equal(res.status, 302);
+  }
+  assert.equal(proxy.auth.revoked.size, 0); // 伪造令牌全部被拒，未进入 revoked 表
+
+  // 正常登录 + 登出仍工作，且登出确实吊销了真实令牌
+  const login = await postLogin(port, 'user1', 'pass1');
+  const sid = login.headers['set-cookie'][0].split(';')[0].slice(4);
+  const logout = await request(port, { method: 'POST', path: '/logout', headers: { Cookie: `sid=${sid}` } });
+  assert.equal(logout.status, 302);
+  assert.equal(proxy.auth.revoked.size, 1);
+  assert.ok(proxy.auth.revoked.has(sid));
+
+  const after = await request(port, { path: '/', headers: { Cookie: `sid=${sid}` } });
+  assert.equal(after.status, 302);
+  assert.equal(after.headers.location, '/login');
+});
+
+test('revoked 表超过上限时按 FIFO 淘汰最旧条目', () => {
+  // 单元级：绕过网络层直接驱动 createAuth；cap 调小以便快速验证淘汰逻辑。
+  const config = buildConfig({ revokedCap: 10 });
+  const auth = createAuth(config, { dir: ROOT });
+  const tokens = [];
+  for (let i = 0; i < 25; i++) {
+    // 显式传 now 保证 25 个令牌互不相同（Date.now() 毫秒分辨率下紧循环会撞车）
+    const token = signSession('user1', config.sessionSecret, config.sessionTtlMs, Date.now() + i * 1000);
+    tokens.push(token);
+    auth.handleLogout({ headers: { cookie: `sid=${token}` } }, fakeRes());
+  }
+  assert.equal(auth.revoked.size, 10); // 超出部分被 FIFO 淘汰
+  // 最早签发的 15 个已被淘汰，仅保留最新的 10 个
+  for (const token of tokens.slice(0, 15)) assert.ok(!auth.revoked.has(token));
+  for (const token of tokens.slice(15)) assert.ok(auth.revoked.has(token));
+});
+
+test('attempts 表超过上限时淘汰最旧记录（含未锁定记录）', () => {
+  const config = buildConfig({ attemptsCap: 5, maxAttempts: 100 });
+  const auth = createAuth(config, { dir: ROOT });
+  for (let i = 0; i < 12; i++) auth.recordFailure(`192.0.2.${i}`);
+  assert.equal(auth.attempts.size, 5); // 12 个 IP 只保留最新的 5 个
 });

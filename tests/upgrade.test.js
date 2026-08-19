@@ -261,3 +261,37 @@ test('握手完成后客户端 RST 断开：代理关闭不配合的后端连接
     proxy.close(),
   ]);
 });
+
+test('handleUpgrade 内部异常被捕获：客户端连接销毁、代理继续存活', { timeout: 10_000 }, async (t) => {
+  // 回归：handleUpgrade 若无 try/catch，forwardUpgrade 里 http.request
+  // 对非法 target 配置的同步抛错会变成 uncaughtException 杀死整个代理进程。
+  const proxy = createProxy({
+    config: buildConfig({ target: { host: 12345, port: 1 } }), // host 类型非法 → http.request 同步抛 TypeError
+    dir: ROOT, mode: 'http',
+  });
+  const listener = await proxy.listen();
+  t.after(() => proxy.close());
+  const port = listener.address().port;
+  const cookie = await login(port);
+
+  const closed = await new Promise((resolve) => {
+    const socket = net.connect(port, '127.0.0.1', () => {
+      const key = crypto.randomBytes(16).toString('base64');
+      socket.write(
+        'GET /api/events.mux HTTP/1.1\r\n' +
+        `Host: 127.0.0.1:${port}\r\n` +
+        'Connection: Upgrade\r\nUpgrade: websocket\r\n' +
+        `Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: ${key}\r\n` +
+        `Cookie: ${cookie}\r\n\r\n`);
+    });
+    socket.on('data', () => {});
+    socket.on('close', () => resolve(true));
+    socket.on('error', () => {});
+    setTimeout(() => resolve(false), 3000);
+  });
+  assert.equal(closed, true, '异常路径应销毁客户端 socket（而非崩溃）');
+
+  // 代理进程未崩溃：后续普通请求正常
+  const res = await httpRequest(port, { method: 'GET', path: '/login' });
+  assert.equal(res.status, 200);
+});

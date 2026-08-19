@@ -4,3 +4,5 @@ config.json
 credentials.txt
 cert.pem
 key.pem
+
+logs/

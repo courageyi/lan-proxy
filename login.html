@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DSH 登录</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+         font-family: system-ui, "Microsoft YaHei", sans-serif; background: #0f172a; color: #e2e8f0; }
+  .card { width: 320px; padding: 32px 28px; border-radius: 12px; background: #1e293b; box-shadow: 0 8px 30px rgba(0,0,0,.35); }
+  h1 { margin: 0 0 4px; font-size: 20px; }
+  p.sub { margin: 0 0 20px; color: #94a3b8; font-size: 13px; }
+  label { display: block; font-size: 13px; margin: 12px 0 4px; color: #cbd5e1; }
+  input { width: 100%; padding: 9px 10px; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: #e2e8f0; font-size: 14px; }
+  input:focus { outline: 2px solid #3b82f6; border-color: transparent; }
+  button { width: 100%; margin-top: 20px; padding: 10px; border: 0; border-radius: 8px; background: #3b82f6; color: #fff; font-size: 15px; cursor: pointer; }
+  button:hover { background: #2563eb; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>DSH 登录</h1>
+  <p class="sub">请输入账号密码以继续</p>
+  <form method="post" action="/login" autocomplete="on">
+    <label for="username">用户名</label>
+    <input id="username" name="username" autocomplete="username" required autofocus>
+    <label for="password">密码</label>
+    <input id="password" type="password" name="password" autocomplete="current-password" required>
+    <button type="submit">登录</button>
+  </form>
+  <p class="error" id="error">__ERROR__</p>
+</div>
+</body>
+</html>

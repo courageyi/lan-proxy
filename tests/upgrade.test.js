@@ -141,3 +141,84 @@ test('无 Cookie 的 WebSocket 升级被拒绝（403）', async (t) => {
   const { head } = await upgrade(port, null);
   assert.match(head, /^HTTP\/1\.1 403 Forbidden/);
 });
+
+test('后端以非 101 响应升级请求：响应透传且双方 close 均能完成', { timeout: 10_000 }, async (t) => {
+  // 不配合的后端：200 + Content-Length: 0，不发送 Connection: close，也不销毁 socket。
+  // 只吞 RST 触发的 'error'（否则 uncaughtException），其余一律不清理。
+  const backend = http.createServer((req, res) => { res.writeHead(404); res.end(); });
+  backend.on('upgrade', (req, socket) => {
+    socket.write('HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n');
+    socket.on('error', () => {});
+  });
+  await new Promise((r) => backend.listen(0, '127.0.0.1', r));
+  t.after(() => new Promise((r) => backend.close(r)));
+  const proxy = createProxy({
+    config: buildConfig({ target: { host: '127.0.0.1', port: backend.address().port } }),
+    dir: ROOT, mode: 'http',
+  });
+  const listener = await proxy.listen();
+  t.after(() => proxy.close());
+  const port = listener.address().port;
+  const cookie = await login(port);
+
+  const { head } = await upgrade(port, cookie);
+  assert.match(head, /^HTTP\/1\.1 200 OK/);
+
+  // 若代理未把后端连接彻底关掉（FIN 后半开），backend.close() 会挂起 → 测试超时即失败
+  await Promise.all([
+    new Promise((r) => backend.close(r)),
+    proxy.close(),
+  ]);
+});
+
+test('升级握手完成前客户端断开不崩溃代理', { timeout: 10_000 }, async (t) => {
+  // 后端延迟 400ms 才回 101，制造“请求已受理、101 未到”的握手窗口
+  const backend = http.createServer((req, res) => { res.writeHead(404); res.end(); });
+  backend.on('upgrade', (req, socket) => {
+    const accept = crypto.createHash('sha1')
+      .update(req.headers['sec-websocket-key'] + WS_GUID).digest('base64');
+    setTimeout(() => {
+      socket.write(
+        'HTTP/1.1 101 Switching Protocols\r\n' +
+        'Upgrade: websocket\r\nConnection: Upgrade\r\n' +
+        `Sec-WebSocket-Accept: ${accept}\r\n\r\n`);
+    }, 400);
+    socket.on('error', () => {});
+    socket.on('end', () => socket.destroy());
+  });
+  await new Promise((r) => backend.listen(0, '127.0.0.1', r));
+  t.after(() => new Promise((r) => backend.close(r)));
+  const proxy = createProxy({
+    config: buildConfig({ target: { host: '127.0.0.1', port: backend.address().port } }),
+    dir: ROOT, mode: 'http',
+  });
+  const listener = await proxy.listen();
+  t.after(() => proxy.close());
+  const port = listener.address().port;
+  const cookie = await login(port);
+
+  // 发送有效升级请求，稍等代理完成转发后立即 RST 断开（后端 101 尚未到达）
+  const socket = net.connect(port, '127.0.0.1', () => {
+    const key = crypto.randomBytes(16).toString('base64');
+    socket.write(
+      'GET /api/events.mux HTTP/1.1\r\n' +
+      `Host: 127.0.0.1:${port}\r\n` +
+      'Connection: Upgrade\r\nUpgrade: websocket\r\n' +
+      `Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: ${key}\r\n` +
+      `Cookie: ${cookie}\r\n\r\n`);
+    setTimeout(() => socket.resetAndDestroy(), 100);
+  });
+  socket.on('error', () => {}); // 客户端自己 RST 自己的 socket，吞掉可能的报错
+
+  // 等后端 101 的延迟窗口过去，确认代理进程没有因 ECONNRESET 崩溃
+  await new Promise((r) => setTimeout(r, 600));
+
+  // 代理必须还活着：普通 HTTP GET /login 应返回 200
+  const res = await httpRequest(port, { method: 'GET', path: '/login' });
+  assert.equal(res.status, 200);
+
+  await Promise.all([
+    new Promise((r) => backend.close(r)),
+    proxy.close(),
+  ]);
+});

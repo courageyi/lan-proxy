@@ -1,4 +1,4 @@
-# lan-proxy — DSH 局域网认证代理
+# lan-proxy — DSH 局域网认证代理（多人在同一个Agent中进行开发操作,共享历史、记忆、方便多人同时开发。）
 
 > LAN authentication proxy for the DeepSeek Harness Web GUI. Zero-dependency Node.js reverse proxy that puts a login page in front of `http://127.0.0.1:3080` and exposes it over the LAN on HTTPS.
 

@@ -132,7 +132,7 @@ test('登录后请求被代理且 Host/Origin 改写为回环权威', async (t) 
       Cookie: `sid=${sid}`,
       'Content-Type': 'application/json',
       'Content-Length': Buffer.byteLength(body),
-      Origin: 'http://192.168.110.168:3081',
+      Origin: 'http://192.168.1.100:3081',
     },
   }, body);
 

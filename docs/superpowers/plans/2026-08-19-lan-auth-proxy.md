@@ -19,7 +19,7 @@
 - 明文 HTTP 访问 3081 → 301 到 `https://<host><path>`。
 - 界面/日志文案使用中文。
 - 秘钥文件（`config.json`、`credentials.txt`、`cert.pem`、`key.pem`）必须加入 `.gitignore`。
-- 每个任务结束提交一次 git（仓库根：`D:\DSH\lan-proxy`，已 `git init`）。
+- 每个任务结束提交一次 git（仓库根：`<仓库根目录>`，已 `git init`）。
 
 ---
 
@@ -844,7 +844,7 @@ test('登录后请求被代理且 Host/Origin 改写为回环权威', async (t) 
       Cookie: `sid=${sid}`,
       'Content-Type': 'application/json',
       'Content-Length': Buffer.byteLength(body),
-      Origin: 'http://192.168.110.168:3081',
+      Origin: 'http://192.168.1.100:3081',
     },
   }, body);
 
@@ -1432,8 +1432,8 @@ module.exports = { createProxy };
 # 生成自签名证书 cert.pem / key.pem（有效期 1 年）
 $ErrorActionPreference = 'Stop'
 $dir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$dns = @('192.168.110.168', 'localhost', '127.0.0.1')
-$cert = New-SelfSignedCertificate -Subject 'CN=192.168.110.168' -DnsName $dns `
+$dns = @('192.168.1.100', 'localhost', '127.0.0.1')
+$cert = New-SelfSignedCertificate -Subject 'CN=192.168.1.100' -DnsName $dns `
   -CertStoreLocation 'Cert:\CurrentUser\My' -KeyAlgorithm RSA -KeyLength 2048 `
   -KeyExportPolicy Exportable -NotAfter (Get-Date).AddYears(1)
 try {
@@ -1693,8 +1693,8 @@ Expected: `Ok.`（若提示需要管理员权限，则以管理员身份运行 P
 - [ ] **Step 9: 交付说明**
 
 向用户交付：
-- 局域网访问地址：`https://192.168.110.168:3081`（本机局域网 IP；证书自签名，浏览器首次提示"不受信任"点继续）
-- 账号：`user1`–`user5`，密码见 `D:\DSH\lan-proxy\credentials.txt`（分发后建议删除该文件）
+- 局域网访问地址：`https://192.168.1.100:3081`（本机局域网 IP；证书自签名，浏览器首次提示"不受信任"点继续）
+- 账号：`user1`–`user5`，密码见 `<仓库根目录>\credentials.txt`（分发后建议删除该文件）
 - 本机仍可直接访问 `http://127.0.0.1:3080`（无需登录，不受影响）
 - 维护命令：`node server.js adduser <用户名> [密码]`；停止暴露：结束 `node server.js` 进程并删除防火墙规则
 

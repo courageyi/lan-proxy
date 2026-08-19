@@ -1,4 +1,4 @@
-﻿# 生成自签名证书 cert.pem / key.pem（有效期 1 年）
+# 生成自签名证书 cert.pem / key.pem（有效期 1 年）
 # 兼容 Windows PowerShell 5.1：优先用 Git 自带 openssl；仅当 openssl 不可用
 # 且当前 PowerShell 支持 ExportCertificatePem（PS 7+）时才回退
 # New-SelfSignedCertificate（PS 5.1 没有 PEM 导出 API）。
@@ -6,7 +6,7 @@ $ErrorActionPreference = 'Stop'
 $dir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $certPath = Join-Path $dir 'cert.pem'
 $keyPath  = Join-Path $dir 'key.pem'
-$ip = '192.168.110.168'
+$ip = '192.168.1.100'   # 占位示例：请改成你本机的局域网 IP（或留空自动探测）
 
 # 试跑一个 openssl.exe，确认它能真正启动（msys 版在受限环境可能起不来）
 function Test-OpensslWorkable([string]$exe) {

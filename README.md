@@ -124,3 +124,7 @@ lan-proxy/
   ```
 - 限速按真实来源 IP 计算，不信任 `X-Forwarded-For`
 
+## License
+
+[MIT](LICENSE)
+
